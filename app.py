@@ -47,7 +47,9 @@ st.markdown(
         background: #f6f8fb; border: 1px solid #e7ebf1;
         border-radius: 12px; padding: 16px 18px;
       }
-      [data-testid="stMetricLabel"] { color: #586579; }
+      [data-testid="stMetricLabel"] { color: #374151 !important; font-weight: 600; }
+      [data-testid="stMetricValue"] { color: #111827 !important; font-weight: 700; }
+      [data-testid="stMetricDelta"] { color: #374151 !important; }
       div[data-testid="stAlert"] { border-radius: 10px; }
     </style>
     """,
