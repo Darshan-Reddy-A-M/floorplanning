@@ -103,6 +103,32 @@ class V4SolveLayoutTests(unittest.TestCase):
         self.assertIsNotNone(result.parking)
         self.assertEqual((result.parking.width, result.parking.length), (3.25, 4.5))
 
+    def test_ground_floor_entry_anchor_touches_selected_road_side(self):
+        rooms = [
+            Room("Entry Foyer", 2.0, 2.0, floor=1),
+            Room("Living Room", 4.0, 4.0, floor=1),
+            Room("Bedroom 1", 3.0, 3.0, floor=2),
+        ]
+        result = solve_layout(20, 20, rooms, number_of_floors=2, road_access="South", time_limit_seconds=2)
+        self.assertIn(result.status, {"OPTIMAL", "FEASIBLE"})
+        foyer = next(room for room in result.placements if room.name == "Entry Foyer")
+        self.assertAlmostEqual(foyer.y, 0.0)
+
+    def test_staircase_is_kept_near_circulation_anchor(self):
+        rooms = [
+            Room("Entry Foyer", 2.0, 2.0, floor=1),
+            Room("Living Room", 4.0, 4.0, floor=1),
+            Room("Family Lounge", 4.0, 4.0, floor=2),
+        ]
+        result = solve_layout(20, 20, rooms, number_of_floors=2, road_access="South", time_limit_seconds=2)
+        self.assertIn(result.status, {"OPTIMAL", "FEASIBLE"})
+        foyer = next(room for room in result.placements if room.name == "Entry Foyer")
+        staircase = result.staircases[0]
+        foyer_center = (foyer.x + foyer.width / 2, foyer.y + foyer.length / 2)
+        stair_center = (staircase.x + staircase.width / 2, staircase.y + staircase.length / 2)
+        manhattan_distance = abs(foyer_center[0] - stair_center[0]) + abs(foyer_center[1] - stair_center[1])
+        self.assertLessEqual(manhattan_distance, 6.0)
+
     def test_parking_prefers_selected_road_side(self):
         cases = (
             ("South", lambda p: p.y),
