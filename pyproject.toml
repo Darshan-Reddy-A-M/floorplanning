@@ -1,0 +1,11 @@
+[project]
+name = "architectural-test-fit-generator"
+version = "0.1.0"
+description = "Constraint-based geometric test-fit generator using OR-Tools CP-SAT and Streamlit"
+requires-python = ">=3.13"
+dependencies = [
+    "matplotlib>=3.11.2",
+    "ortools>=9.15.6755",
+    "pandas>=3.0.6",
+    "streamlit>=1.65.0",
+]
