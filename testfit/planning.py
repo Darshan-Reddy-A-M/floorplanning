@@ -60,7 +60,12 @@ def floor_label(floor: int) -> str:
 def select_entrance_room(
     placements: Sequence[Placement], side: str
 ) -> Placement | None:
-    """Select a non-bathroom ground-floor room on the requested exterior edge."""
+    """Choose the most appropriate ground-floor room for the main entrance.
+
+    Prefer foyer/entry/common rooms, but rank them by actual distance to the
+    requested exterior side. This avoids selecting a visually convenient room
+    that is deep inside the building.
+    """
     candidates = [
         room
         for room in placements
@@ -69,32 +74,48 @@ def select_entrance_room(
     if not candidates:
         return None
     side = side.title()
-    if side == "North":
-        exterior = max(room.y + room.length for room in candidates)
-        candidates = [
-            room for room in candidates if abs(room.y + room.length - exterior) < 1e-8
-        ]
-    elif side == "South":
-        exterior = min(room.y for room in candidates)
-        candidates = [room for room in candidates if abs(room.y - exterior) < 1e-8]
-    elif side == "East":
-        exterior = max(room.x + room.width for room in candidates)
-        candidates = [
-            room for room in candidates if abs(room.x + room.width - exterior) < 1e-8
-        ]
-    elif side == "West":
-        exterior = min(room.x for room in candidates)
-        candidates = [room for room in candidates if abs(room.x - exterior) < 1e-8]
-    else:
+    keyword_priority = (
+        "entry foyer",
+        "foyer",
+        "entrance",
+        "living",
+        "dining",
+        "kitchen",
+    )
+
+    def edge_distance(room: Placement) -> float:
+        if side == "North":
+            return max(0.0, max(room.y + room.length, 0.0))
+        if side == "South":
+            return max(0.0, room.y)
+        if side == "East":
+            return max(0.0, room.x)
+        if side == "West":
+            return max(0.0, room.x)
         raise ValueError("Entrance side must be North, South, East, or West.")
-    return next(
-        (
-            room
-            for keyword in ("foyer", "entrance", "living")
-            for room in candidates
-            if keyword in room.name.casefold()
-        ),
-        candidates[0],
+
+    def frontage_gap(room: Placement) -> float:
+        if side == "North":
+            return max(0.0, -room.y - room.length)
+        if side == "South":
+            return max(0.0, room.y)
+        if side == "East":
+            return max(0.0, -room.x - room.width)
+        return max(0.0, room.x)
+
+    def keyword_rank(room: Placement) -> int:
+        name = room.name.casefold()
+        for rank, keyword in enumerate(keyword_priority):
+            if keyword in name:
+                return rank
+        return len(keyword_priority)
+
+    # The solver now places the primary anchor on the road-facing buildable
+    # edge. This ranking remains defensive for custom programs and older saved
+    # layouts.
+    return min(
+        candidates,
+        key=lambda room: (frontage_gap(room), keyword_rank(room), edge_distance(room)),
     )
 
 
