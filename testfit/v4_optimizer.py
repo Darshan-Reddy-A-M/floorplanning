@@ -41,6 +41,51 @@ def _canonical_parking_type(value: str) -> str:
         raise ValueError("Parking must be No parking, 1 car, or 2 cars.") from error
 
 
+def _select_architectural_anchor_indices(
+    rooms: Sequence[Room],
+) -> dict[int, int]:
+    """Choose one circulation/core anchor room per floor.
+
+    The anchor is used only for spatial-quality objectives: it is not a room
+    resize or a replacement for user-defined relationships. Foyer/entry spaces
+    are preferred, followed by living/family/common spaces, then the largest
+    remaining room on the floor.
+    """
+    priority_keywords = (
+        "entry foyer",
+        "foyer",
+        "entrance",
+        "living",
+        "family lounge",
+        "dining",
+        "kitchen",
+    )
+    anchors: dict[int, int] = {}
+    for floor in sorted({room.floor for room in rooms}):
+        candidates = [
+            (index, room)
+            for index, room in enumerate(rooms)
+            if room.floor == floor and "bathroom" not in room.name.casefold()
+        ]
+        if not candidates:
+            continue
+        selected = None
+        for keyword in priority_keywords:
+            selected = next(
+                (item for item in candidates if keyword in item[1].name.casefold()),
+                None,
+            )
+            if selected is not None:
+                break
+        if selected is None:
+            selected = max(
+                candidates,
+                key=lambda item: item[1].width * item[1].length,
+            )
+        anchors[floor] = selected[0]
+    return anchors
+
+
 def solve_building_layout(
     *,
     site_width: float,
@@ -292,6 +337,25 @@ def _solve_floor_aware_model(
         )
         floor_room_indices[room.floor].append(index)
 
+    architectural_anchors = _select_architectural_anchor_indices(rooms)
+
+    # Put the primary ground-floor entrance/core room on the road-facing
+    # buildable edge. This gives the entrance a real facade relationship instead
+    # of drawing a door on an arbitrary room after solving.
+    ground_anchor_index = architectural_anchors.get(1)
+    if ground_anchor_index is not None:
+        anchor_width, anchor_length = dimensions[ground_anchor_index]
+        anchor_x = x_positions[ground_anchor_index]
+        anchor_y = y_positions[ground_anchor_index]
+        if road_access == "South":
+            model.add(anchor_y == buildable_y_min)
+        elif road_access == "North":
+            model.add(anchor_y + anchor_length == buildable_y_max)
+        elif road_access == "West":
+            model.add(anchor_x == buildable_x_min)
+        else:
+            model.add(anchor_x + anchor_width == buildable_x_max)
+
     staircase_positions: list[tuple[int, int, cp_model.IntVar, cp_model.IntVar, object, object]] = []
     floor_staircase_indices = {floor: [] for floor in range(1, number_of_floors + 1)}
     if staircase_dimensions is not None:
@@ -387,6 +451,82 @@ def _solve_floor_aware_model(
     near_distances: list[cp_model.IntVar] = []
     preferred_penalties: list[cp_model.IntVar] = []
     stacked_distances_half_units: list[cp_model.IntVar] = []
+    internal_gap_distances: list[cp_model.IntVar] = []
+    staircase_anchor_distances: list[cp_model.IntVar] = []
+    # Penalize unnecessary empty space between rooms on the same floor.
+    # This is deliberately a soft objective: circulation remains possible, but
+    # isolated rectangles are discouraged.
+    for first_index in range(len(rooms)):
+        for second_index in range(first_index + 1, len(rooms)):
+            if rooms[first_index].floor != rooms[second_index].floor:
+                continue
+            first_width, first_length = dimensions[first_index]
+            second_width, second_length = dimensions[second_index]
+            horizontal_gap = model.new_int_var(
+                0, site_width_units, f"cluster_{first_index}_{second_index}_dx"
+            )
+            vertical_gap = model.new_int_var(
+                0, site_length_units, f"cluster_{first_index}_{second_index}_dy"
+            )
+            model.add_max_equality(
+                horizontal_gap,
+                [
+                    0,
+                    x_positions[first_index]
+                    - (x_positions[second_index] + second_width),
+                    x_positions[second_index]
+                    - (x_positions[first_index] + first_width),
+                ],
+            )
+            model.add_max_equality(
+                vertical_gap,
+                [
+                    0,
+                    y_positions[first_index]
+                    - (y_positions[second_index] + second_length),
+                    y_positions[second_index]
+                    - (y_positions[first_index] + first_length),
+                ],
+            )
+            pair_gap = model.new_int_var(
+                0, site_width_units + site_length_units,
+                f"cluster_{first_index}_{second_index}_gap",
+            )
+            model.add(pair_gap == horizontal_gap + vertical_gap)
+            internal_gap_distances.append(pair_gap)
+
+    # Keep the staircase close to the architectural circulation/core anchors on
+    # every served floor. The same staircase shaft is used on all floors.
+    if staircase_positions and architectural_anchors:
+        for _, _, stair_x, stair_y, _, _ in staircase_positions:
+            stair_width, stair_length = staircase_dimensions or (0, 0)
+            for floor, anchor_index in architectural_anchors.items():
+                if floor > number_of_floors:
+                    continue
+                anchor_width, anchor_length = dimensions[anchor_index]
+                center_dx = model.new_int_var(
+                    0, 2 * site_width_units, f"stair_anchor_{floor}_dx"
+                )
+                center_dy = model.new_int_var(
+                    0, 2 * site_length_units, f"stair_anchor_{floor}_dy"
+                )
+                model.add_abs_equality(
+                    center_dx,
+                    2 * stair_x + stair_width
+                    - 2 * x_positions[anchor_index] - anchor_width,
+                )
+                model.add_abs_equality(
+                    center_dy,
+                    2 * stair_y + stair_length
+                    - 2 * y_positions[anchor_index] - anchor_length,
+                )
+                distance = model.new_int_var(
+                    0, 2 * (site_width_units + site_length_units),
+                    f"stair_anchor_{floor}_distance",
+                )
+                model.add(distance == center_dx + center_dy)
+                staircase_anchor_distances.append(distance)
+
     for relationship_index, relationship in enumerate(relationships):
         first_index = room_indices[relationship.room_a]
         second_index = room_indices[relationship.room_b]
@@ -531,6 +671,14 @@ def _solve_floor_aware_model(
     if bbox_dimension_terms:
         objective_stages.append(
             ("occupied bounding-box dimensions", sum(bbox_dimension_terms))
+        )
+    if internal_gap_distances:
+        objective_stages.append(
+            ("residential cluster gaps", sum(internal_gap_distances))
+        )
+    if staircase_anchor_distances:
+        objective_stages.append(
+            ("staircase to circulation core", sum(staircase_anchor_distances))
         )
     if near_distances:
         objective_stages.append(("NEAR distance", sum(near_distances)))
