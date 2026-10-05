@@ -162,33 +162,40 @@ def create_floor_plan(
     )
     road_access = road_access.title()
     entrance_side = (entrance_side or road_access).title()
-    gate_x = site_width / 2
-    gate_y = site_length / 2
-    if road_access == "South":
-        gate_y = 0
-        gate_x = site_width / 2
-    elif road_access == "North":
-        gate_y = site_length
-    elif road_access == "West":
-        gate_x = 0
-    elif road_access == "East":
-        gate_x = site_width
-    else:
+
+    def project_to_road(x: float, y: float, side: str) -> tuple[float, float]:
+        """Project a point to the selected road boundary."""
+        if side == "South":
+            return max(0.0, min(site_width, x)), 0.0
+        if side == "North":
+            return max(0.0, min(site_width, x)), site_length
+        if side == "West":
+            return 0.0, max(0.0, min(site_length, y))
+        if side == "East":
+            return site_width, max(0.0, min(site_length, y))
         raise ValueError("Road access must be North, South, East, or West.")
-    pedestrian_gate_x = site_width / 2
-    pedestrian_gate_y = site_length / 2
-    if entrance_side == "South":
-        pedestrian_gate_x = max(0.0, min(site_width, site_width / 2 - 3))
-        pedestrian_gate_y = 0
-    elif entrance_side == "North":
-        pedestrian_gate_x = max(0.0, min(site_width, site_width / 2 - 3))
-        pedestrian_gate_y = site_length
-    elif entrance_side == "West":
-        pedestrian_gate_x = 0
-        pedestrian_gate_y = max(0.0, min(site_length, site_length / 2 - 3))
-    elif entrance_side == "East":
-        pedestrian_gate_x = site_width
-        pedestrian_gate_y = max(0.0, min(site_length, site_length / 2 - 3))
+
+    entrance_room = next(
+        (room for room in placements if room.name == (entrance_room_name or "") and room.floor == floor_number),
+        None,
+    )
+    if parking is not None:
+        gate_x, gate_y = project_to_road(
+            parking.x + parking.width / 2, parking.y + parking.length / 2, road_access
+        )
+    else:
+        gate_x, gate_y = project_to_road(site_width / 2, site_length / 2, road_access)
+
+    if entrance_room is not None:
+        pedestrian_gate_x, pedestrian_gate_y = project_to_road(
+            entrance_room.x + entrance_room.width / 2,
+            entrance_room.y + entrance_room.length / 2,
+            entrance_side,
+        )
+    else:
+        pedestrian_gate_x, pedestrian_gate_y = project_to_road(
+            site_width / 2, site_length / 2, entrance_side
+        )
 
     if floor_number == 1:
         axis.scatter([gate_x], [gate_y], marker="s", s=65, color="#b45309", zorder=6)
