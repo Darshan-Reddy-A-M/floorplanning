@@ -109,9 +109,11 @@ def render(cfg, inputs, result, entrance_room, out_dir: pathlib.Path) -> list[st
 def run_config(cfg, args, out_dir: pathlib.Path) -> dict:
     from testfit.optimizer import solve_layout
     from testfit.planning import select_entrance_room
-    from testfit.validation import (
-        as_rect, evaluate, legacy_gate_points, snapshot_from_layout, summary_row,
-    )
+    # Import from the submodules (not the package re-exports) so the harness does
+    # not depend on testfit/validation/__init__.py being present.
+    from testfit.validation.legacy_gates import legacy_gate_points
+    from testfit.validation.report import evaluate, summary_row
+    from testfit.validation.snapshot import as_rect, snapshot_from_layout
 
     inputs = build_inputs(cfg)
     parking = inputs["parking_m"]
@@ -174,7 +176,7 @@ def run_config(cfg, args, out_dir: pathlib.Path) -> dict:
 def main() -> int:
     args = parse_args()
     from ortools import __version__ as ortools_version
-    from testfit.validation import SUMMARY_COLUMNS, rows_to_markdown
+    from testfit.validation.report import SUMMARY_COLUMNS, rows_to_markdown
     from tests.fixtures.sample_configs import SAMPLE_CONFIGS
 
     out_dir = pathlib.Path(args.out)
