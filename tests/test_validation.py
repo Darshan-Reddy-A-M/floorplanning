@@ -348,6 +348,22 @@ class PackageTests(unittest.TestCase):
         code = "import sys, testfit.validation; assert 'ortools' not in sys.modules"
         subprocess.run([sys.executable, "-c", code], cwd=ROOT, check=True)
 
+    def test_package_directories_have_nonempty_init_files(self):
+        # A missing __init__.py turns the package into a namespace package and
+        # breaks `from testfit.validation import ...`; empty files are also
+        # silently dropped by GitHub web uploads.
+        for directory in ("testfit/validation", "tests/fixtures"):
+            init = ROOT / directory / "__init__.py"
+            self.assertTrue(init.is_file(), f"{init} is missing")
+            self.assertGreater(init.stat().st_size, 0, f"{init} is empty")
+        import testfit.validation as package
+        self.assertIsNotNone(package.__file__, "testfit.validation resolved as a namespace package")
+
+    def test_scripts_import_from_validation_submodules(self):
+        for script in ("generate_samples.py", "validate_snapshot.py"):
+            text = (ROOT / "scripts" / script).read_text()
+            self.assertNotIn("from testfit.validation import", text, script)
+
     def test_sample_matrix_is_well_formed(self):
         ids = [c.id for c in SAMPLE_CONFIGS]
         self.assertEqual(len(ids), len(set(ids)))
