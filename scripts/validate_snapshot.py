@@ -17,9 +17,10 @@ import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-from testfit.validation import (  # noqa: E402
-    LayoutSnapshot, evaluate, format_text, rows_to_markdown, summary_row,
+from testfit.validation.report import (  # noqa: E402
+    evaluate, format_text, rows_to_markdown, summary_row,
 )
+from testfit.validation.snapshot import LayoutSnapshot  # noqa: E402
 
 
 def main() -> int:
